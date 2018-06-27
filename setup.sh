@@ -6,7 +6,8 @@
 ping -c 1 perfsonar.slateci.io | grep -q $(hostname -I) && \
 # TODO: make this include port etc and be more explicit
 echo "Address configured properly point perfsonar testpoints to perfsonar.slateci.io" || \
-echo "Address is not configured correctly. You will need to manually change where the perfsonar testpoints point to."
+echo "Address is not configured correctly. You will need to manually csed -i 's/<pwa_hostname>/perfsonar.slateci.io/' /etc/pwa/index.js
+hange where the perfsonar testpoints point to."
 
 yum -y install \
 epel-release \
@@ -32,5 +33,74 @@ systemctl restart ntpd
 # run the servicewatcher the first time
 /usr/lib/perfsonar/scripts/service_watcher
 
+# install the gui pswebadmin
+yum install -y docker
+mkdir -p /etc/docker
+systemctl enable docker
+systemctl start docker
+
+cat <<EOT >> /etc/logrotate.d/docker-container
+/var/lib/docker/containers/*/*.log {
+  rotate 7
+  daily
+  compress
+  size=1M
+  missingok
+  delaycompress
+  copytruncate
+}
+EOT
+
+# deploy example TODO: replace with our own?
+sed -i 's/<pwa_hostname>/perfsonar.slateci.io/g' /etc/pwa/index.js /etc/pwa/auth/index.js
+# if going to run a private LS, need to also edit datasource section
+# TODO: change this email address!!
+sed -i 's/<email_address>/jproc@umich.edu/g' /etc/pwa/auth/index.js
+# fix ports for running with MaDDash
+sed -i '/listen/ s/80/8000/' /etc/pwa/nginx/conf.d/pwa.conf
+sed -i '/listen/ s/443 ssl/8443/' /etc/pwa/nginx/conf.d/pwa.conf
+# start docker containers
+docker network create pwa
+mkdir -p /usr/local/data
+docker run \
+        --restart=always \
+        --net pwa \
+        --name mongo \
+        -v /usr/local/data/mongo:/data/db \
+        -d mongo
+docker run \
+    --restart=always \
+    --net pwa \
+    --name sca-auth \
+    -v /etc/pwa/auth:/app/api/config \
+    -v /usr/local/data/auth:/db \
+    -d perfsonar/sca-auth
+
+docker run \
+    --restart=always \
+    --net pwa \
+    --name pwa-admin1 \
+    -v /etc/pwa:/app/api/config:ro \
+    -d perfsonar/pwa-admin
+docker run \
+    --restart=always \
+    --net pwa \
+    --name pwa-pub1 \
+    -v /etc/pwa:/app/api/config:ro \
+    -d perfsonar/pwa-pub
+docker run \
+    --restart=always \
+    --net pwa \
+    --name nginx \
+    -v /etc/pwa/shared:/shared:ro \
+    -v /etc/pwa/nginx:/etc/nginx:ro \
+    -v /etc/grid-security/host:/certs:ro \
+    -p 8000:8000 \
+    -p 8443:8443 \
+    -p 9443:9443 \
+    -d nginx
 # TODO: finish the psconfig setup
-# TODO: figure out how to automatically submit 
+
+# psconfig remote add --configure-archives perfsonar.slateci.io
+
+# TODO: figure out how to automatically submit cd
