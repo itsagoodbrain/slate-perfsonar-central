@@ -51,17 +51,32 @@ cat <<EOT >> /etc/logrotate.d/docker-container
 }
 EOT
 
+
 # deploy example TODO: replace with our own?
+curl -L https://github.com/perfsonar/psconfig-web/raw/master/deploy/docker/pwa.sample.tar.gz -o pwa.sample.tar
+tar -xzf pwa.sample.tar.gz -C /etc
+
 sed -i 's/<pwa_hostname>/perfsonar.slateci.io/g' /etc/pwa/index.js /etc/pwa/auth/index.js
-# if going to run a private LS, need to also edit datasource section
+# if going to run a private sLS, need to also edit datasource section
 # TODO: change this email address!!
 sed -i 's/<email_address>/jproc@umich.edu/g' /etc/pwa/auth/index.js
+
+# TODO: better ssl security
+openssl req -x509 -newkey rsa:4096 -keyout /etc/pwa/auth
+/key.pem -out /etc/pwa/auth
+/cert.pem -days 365 -nodes -subj "/C=US/OU=SlateCI/CN=slateci.io"
+openssl x509 -in /etc/ssl/certs/ca-bundle.trust.crt -out /etc/pwa/auth/trusted.pem -outform PEM
+
+# input required, create new users according to
+
+
 # fix ports for running with MaDDash
 sed -i '/listen/ s/80/8000/' /etc/pwa/nginx/conf.d/pwa.conf
-sed -i '/listen/ s/443 ssl/8443/' /etc/pwa/nginx/conf.d/pwa.conf
+sed -i '/listen/ s/ 443 ssl/ 8443/' /etc/pwa/nginx/conf.d/pwa.conf
 # start docker containers
 docker network create pwa
 mkdir -p /usr/local/data
+
 docker run \
         --restart=always \
         --net pwa \
@@ -75,7 +90,6 @@ docker run \
     -v /etc/pwa/auth:/app/api/config \
     -v /usr/local/data/auth:/db \
     -d perfsonar/sca-auth
-
 docker run \
     --restart=always \
     --net pwa \
@@ -94,12 +108,14 @@ docker run \
     --name nginx \
     -v /etc/pwa/shared:/shared:ro \
     -v /etc/pwa/nginx:/etc/nginx:ro \
-    -v /etc/grid-security/host:/certs:ro \
+    -v /etc/pwa/auth:/certs:ro \
     -p 8000:8000 \
     -p 8443:8443 \
     -p 9443:9443 \
     -d nginx
-# TODO: finish the psconfig setup
+
+systemctl restart docker
+# TODO: finish the pwa ccustomization for easier psconfig setup
 
 # psconfig remote add --configure-archives perfsonar.slateci.io
 
