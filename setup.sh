@@ -6,8 +6,7 @@
 ping -c 1 perfsonar.slateci.io | grep -q $(hostname -I) && \
 # TODO: make this include port etc and be more explicit
 echo "Address configured properly point perfsonar testpoints to perfsonar.slateci.io" || \
-echo "Address is not configured correctly. You will need to manually csed -i 's/<pwa_hostname>/perfsonar.slateci.io/' /etc/pwa/index.js
-hange where the perfsonar testpoints point to."
+echo "Address is not configured correctly."
 
 yum -y install \
 epel-release \
@@ -52,7 +51,7 @@ cat <<EOT >> /etc/logrotate.d/docker-container
 EOT
 
 
-# deploy example TODO: replace with our own?
+# deploy example TODO: replace with our own if a lot of customization?
 curl -L https://github.com/perfsonar/psconfig-web/raw/master/deploy/docker/pwa.sample.tar.gz -o pwa.sample.tar
 tar -xzf pwa.sample.tar.gz -C /etc
 
@@ -61,10 +60,8 @@ sed -i 's/<pwa_hostname>/perfsonar.slateci.io/g' /etc/pwa/index.js /etc/pwa/auth
 # TODO: change this email address!!
 sed -i 's/<email_address>/jproc@umich.edu/g' /etc/pwa/auth/index.js
 
-# TODO: better ssl security
-openssl req -x509 -newkey rsa:4096 -keyout /etc/pwa/auth
-/key.pem -out /etc/pwa/auth
-/cert.pem -days 365 -nodes -subj "/C=US/OU=SlateCI/CN=slateci.io"
+# TODO: better ssl security than this
+openssl req -x509 -newkey rsa:4096 -keyout /etc/pwa/auth/key.pem -out /etc/pwa/auth/cert.pem -days 365 -nodes -subj "/C=US/OU=SlateCI/CN=slateci.io"
 openssl x509 -in /etc/ssl/certs/ca-bundle.trust.crt -out /etc/pwa/auth/trusted.pem -outform PEM
 
 # input required, create new users according to
@@ -74,13 +71,14 @@ openssl x509 -in /etc/ssl/certs/ca-bundle.trust.crt -out /etc/pwa/auth/trusted.p
 sed -i '/listen/ s/80/8000/' /etc/pwa/nginx/conf.d/pwa.conf
 sed -i '/listen/ s/ 443 ssl/ 8443/' /etc/pwa/nginx/conf.d/pwa.conf
 # start docker containers
-docker network create pwa
+docker network create --subnet=172.18.0.0/16 pwa
 mkdir -p /usr/local/data
 
 docker run \
         --restart=always \
         --net pwa \
         --name mongo \
+        --ip 172.18.0.22 \
         -v /usr/local/data/mongo:/data/db \
         -d mongo
 docker run \
@@ -115,7 +113,30 @@ docker run \
     -d nginx
 
 systemctl restart docker
-# TODO: finish the pwa ccustomization for easier psconfig setup
+
+# simple lookupservice
+
+# install lookup-service withproper deps except for mongodb
+yum -y install $(repoquery --requires --resolve lookup-service | grep $(uname -m) | grep -vwE mongodb)
+rpm -Uvh --nodeps $(repoquery --location lookup-service)
+# open needed ports
+firewall-cmd --add-port=8090/tcp --permanent #lookup service
+# TODO: do we need this? # firewall-cmd --add-port=5672/tcp --permanent #queue with rabbit |mq?
+firewall-cmd --reload
+# change config files
+sed -i -e 's/localhost/perfsonar.slateci.io/' \
+    # using docker mongodb instance, shared with pwa
+    -e 's/127.0.0.1/172.18.0.22/' \
+    # no username or password on default setup
+    -e '/username/d' \
+    -e '/password/d' \
+    # be more accurate with the database nameing
+    -e 's/services/hosts/'
+    /etc/lookup-service/lookupservice.yaml
+# TODO: be certain about the queservice settings being off
+
+systemctl enable lookup-service
+systemctl start lookup-service
 
 # psconfig remote add --configure-archives perfsonar.slateci.io
 
