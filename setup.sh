@@ -3,9 +3,9 @@
 
 
 # make sure we're at the ip we should be to reach our configuration files
-ping -c 1 perfsonar.slateci.io | grep -q $(hostname -I) && \
+ping -c 1 perfsonar.slateci.net | grep -q $(hostname -I) && \
 # TODO: make this include port etc and be more explicit
-echo "Address configured properly point perfsonar testpoints to perfsonar.slateci.io" || \
+echo "Address configured properly point perfsonar testpoints to perfsonar.slateci.net" || \
 echo "Address is not configured correctly."
 
 yum -y install \
@@ -55,20 +55,25 @@ EOT
 curl -L https://github.com/perfsonar/psconfig-web/raw/master/deploy/docker/pwa.sample.tar.gz -o pwa.sample.tar
 tar -xzf pwa.sample.tar.gz -C /etc
 
-sed -i 's/<pwa_hostname>/perfsonar.slateci.io/g' /etc/pwa/index.js /etc/pwa/auth/index.js
+sed -i 's/<pwa_hostname>/perfsonar.slateci.net/g' /etc/pwa/index.js /etc/pwa/auth/index.js
 # if going to run a private sLS, need to also edit datasource section
 # TODO: change this email address!!
 sed -i 's/<email_address>/jproc@umich.edu/g' /etc/pwa/auth/index.js
 
 # TODO: better ssl security than this
-openssl req -x509 -newkey rsa:4096 -keyout /etc/pwa/auth/key.pem -out /etc/pwa/auth/cert.pem -days 365 -nodes -subj "/C=US/OU=SlateCI/CN=slateci.io"
-openssl x509 -in /etc/ssl/certs/ca-bundle.trust.crt -out /etc/pwa/auth/trusted.pem -outform PEM
+# TODO: figure out input to /etc/pki/tls/certs/server.crt and /etc/pki/tls/private/server.key
+chmod 600 /etc/pki/tls/certs/perfsonar.slateci.net.crt /etc/pki/tls/private/perfsonar.slateci.net.key
+sed -i 's/localhost/perfsonar.slateci.net/g' /etc/httpd/conf.d/ssl.conf
+
+ln /etc/pki/tls/certs/perfsonar.slateci.net.crt /etc/pwa/auth/cert.pem
+ln /etc/pki/tls/private/perfsonar.slateci.net.key /etc/pwa/auth/key.pem
+ln /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem /etc/pwa/auth/trusted.pem
 
 # input required, create new users according to
 
 
 # fix ports for running with MaDDash
-sed -i '/listen/ s/80/8000/' /etc/pwa/nginx/conf.d/pwa.conf
+sed -i '/listen/ s/ 80;/ 8000;/' /etc/pwa/nginx/conf.d/pwa.conf
 sed -i '/listen/ s/ 443 ssl/ 8443/' /etc/pwa/nginx/conf.d/pwa.conf
 # start docker containers
 docker network create --subnet=172.18.0.0/16 pwa
@@ -124,7 +129,7 @@ firewall-cmd --add-port=8090/tcp --permanent #lookup service
 # TODO: do we need this? # firewall-cmd --add-port=5672/tcp --permanent #queue with rabbit |mq?
 firewall-cmd --reload
 # change config files
-sed -i -e 's/localhost/perfsonar.slateci.io/' \
+sed -i -e 's/localhost/perfsonar.slateci.net/' \
     # using docker mongodb instance, shared with pwa
     -e 's/127.0.0.1/172.18.0.22/' \
     # no username or password on default setup
@@ -138,6 +143,8 @@ sed -i -e 's/localhost/perfsonar.slateci.io/' \
 systemctl enable lookup-service
 systemctl start lookup-service
 
-# psconfig remote add --configure-archives perfsonar.slateci.io
+# psconfig remote add --configure-archives perfsonar.slateci.net
 
+# TODO: figure out why https keeps lookup/records from connecting
+# TODO: figure out how to make sure essential processes like httpd restart if they die
 # TODO: figure out how to automatically submit cd
