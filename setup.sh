@@ -60,8 +60,7 @@ sed -i 's/<pwa_hostname>/perfsonar.slateci.net/g' /etc/pwa/index.js /etc/pwa/aut
 # TODO: change this email address!!
 sed -i 's/<email_address>/jproc@umich.edu/g' /etc/pwa/auth/index.js
 
-# TODO: better ssl security than this
-# TODO: figure out input to /etc/pki/tls/certs/server.crt and /etc/pki/tls/private/server.key
+# TODO: notice that perfsonar.slateci.net key and cert must be in place?
 chmod 600 /etc/pki/tls/certs/perfsonar.slateci.net.crt /etc/pki/tls/private/perfsonar.slateci.net.key
 sed -i 's/localhost/perfsonar.slateci.net/g' /etc/httpd/conf.d/ssl.conf
 
